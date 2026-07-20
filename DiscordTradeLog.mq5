@@ -540,7 +540,7 @@ void HandleClose(const ulong dealTicket)
    long   reasonRaw   = HistoryDealGetInteger(dealTicket, DEAL_REASON);
    string reasonText  = DealReasonToText(reasonRaw);
 
-   string desc = "## Profit: $ " + DoubleToString(info.profit, 2) + "\\n" +
+   string desc = "## P/L: $ " + DoubleToString(info.profit, 2) + "\\n" +
                  "**Result:** " + tradeResult + "\\n" +
                  "**Motivo de cierre:** " + reasonText + "\\n" +
                  "**Precio cierre:** " + DoubleToString(info.price, _Digits) + "\\n" +
