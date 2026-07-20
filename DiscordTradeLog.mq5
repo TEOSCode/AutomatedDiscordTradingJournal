@@ -46,8 +46,8 @@ string JsonEscape(const string s)
 
 string TypeToStr(const ENUM_DEAL_TYPE t)
 {
-   if(t == DEAL_TYPE_BUY)  return "COMPRA";
-   if(t == DEAL_TYPE_SELL) return "VENTA";
+   if(t == DEAL_TYPE_BUY)  return "🟢 Buy";
+   if(t == DEAL_TYPE_SELL) return "🔴 Sell";
    return "OTRO";
 }
 
@@ -102,14 +102,14 @@ string DealReasonToText(const long reason)
 }
 //+------------------------------------------------------------------+
 //| Formatea una fecha/hora local en espanol, ej:                     |
-//| "Lunes 20 Jul 2026 09:30am"                                       |
+//| "Lunes 20 Jul 2026 09:30 AM"                                       |
 //+------------------------------------------------------------------+
 string FormatLocalDate(const datetime t)
 {
    MqlDateTime dt;
    TimeToStruct(t, dt);
  
-   string dayNames[7]   = {"Domingo","Lunes","Martes","Miercoles","Jueves","Viernes","Sabado"};
+   string dayNames[7]   = {"Dom","Lun","Mar","Mie","Jue","Vie","Sab"};
    string monthNames[13] = {"", "Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"};
  
    int hour12 = dt.hour % 12;
@@ -549,7 +549,7 @@ void HandleClose(const ulong dealTicket)
                  "**Volumen:** " + DoubleToString(info.volume, 2) + "\\n" +
                  "**Simbolo:** " + info.symbol + "\\n" +
                  "**Hora cierre:** " + TimeToString(info.time, TIME_DATE|TIME_MINUTES) + "\\n" +
-                 "**Ticket:**" + (string)info.positionId;
+                 "**Ticket:** " + (string)info.positionId;
 
    string json = "{" +
                  "\"embeds\":[{" +
