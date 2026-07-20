@@ -1,6 +1,6 @@
 ﻿//+------------------------------------------------------------------+
 //|                                            LemuzLabs.blogspot.com| 
-//|                                        TradeToDiscordForum.mq5   |
+//|                                           TradeToDiscordForum.mq5|
 //|  Envia cada operacion a un canal FORO de Discord:                |
 //|   - Al ABRIR: crea un thread nuevo (webhook + thread_name)       |
 //|     con una captura del chart e info del trade.                  |
