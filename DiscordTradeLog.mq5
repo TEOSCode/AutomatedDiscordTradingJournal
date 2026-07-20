@@ -1,22 +1,23 @@
 ﻿//+------------------------------------------------------------------+
+//|                                            LemuzLabs.blogspot.com| 
 //|                                        TradeToDiscordForum.mq5   |
 //|  Envia cada operacion a un canal FORO de Discord:                |
 //|   - Al ABRIR: crea un thread nuevo (webhook + thread_name)       |
-//|     con una captura del chart e info del trade.                 |
+//|     con una captura del chart e info del trade.                  |
 //|   - Al CERRAR: postea en el MISMO thread (bot token) con otra    |
-//|     captura e info de cierre (profit, duracion, etc).           |
+//|     captura e info de cierre (profit, duracion, etc).            |
 //|                                                                  |
-//|  REQUISITOS ANTES DE CORRERLO:                                  |
-//|   1) Herramientas > Opciones > Expert Advisors >                |
-//|      "Permitir WebRequest para las URLs listadas" y agrega:     |
-//|         https://discord.com                                     |
-//|   2) Crea un Webhook en el canal foro de Discord                |
-//|      (Configuracion del canal > Integraciones > Webhooks)       |
-//|   3) Crea un Bot en https://discord.com/developers/applications |
-//|      invitalo al servidor con permiso "Send Messages in         |
+//|  REQUISITOS ANTES DE CORRERLO:                                   |
+//|   1) Herramientas > Opciones > Expert Advisors >                 |
+//|      "Permitir WebRequest para las URLs listadas" y agrega:      |
+//|         https://discord.com                                      |
+//|   2) Crea un Webhook en el canal foro de Discord                 |
+//|      (Configuracion del canal > Integraciones > Webhooks)        |
+//|   3) Crea un Bot en https://discord.com/developers/applications  |
+//|      invitalo al servidor con permiso "Send Messages in          |
 //|      Threads" y "Attach Files", y copia su token.                |
 //|   4) El EA debe correr en el chart del simbolo que quieres       |
-//|      capturar (ChartScreenShot solo captura el chart actual).   |
+//|      capturar (ChartScreenShot solo captura el chart actual).    |
 //+------------------------------------------------------------------+
 #property strict
 #property version   "1.00"
@@ -25,8 +26,8 @@
 input string InpWebhookURL      = "https://discord.com/api/webhooks/ID/TOKEN"; // Webhook del canal foro
 input string InpBotToken        = "TU_BOT_TOKEN_AQUI";                          // Token del bot (para actualizar threads)
 input string InpMappingFile     = "trade_threads.csv";                          // Archivo local de mapeo ticket->thread
-input int    InpShotWidth       = 1280;
-input int    InpShotHeight      = 720;
+input int    InpShotWidth       = 3840;
+input int    InpShotHeight      = 2160;
 input int    InpHttpTimeoutMs   = 8000;
 input bool   InpDeleteLocalPng  = true;  // borrar el PNG local despues de enviarlo
 
@@ -476,7 +477,8 @@ void HandleOpen(const ulong dealTicket)
                  "**Simbolo:** " + info.symbol + "\\n" +
                  "**Tipo:** " + TypeToStr(info.type) + "\\n" +
                  "**Volumen:** " + DoubleToString(info.volume, 2) + "\\n" +
-                 "**Hora:** " + TimeToString(info.time, TIME_DATE|TIME_MINUTES);
+                 "**Hora:** " + TimeToString(info.time, TIME_DATE|TIME_MINUTES)+ "\\n" +
+                 "**Ticket:** " + (string)info.positionId;
 
    string json = "{" +
                  "\"thread_name\":\"" + JsonEscape(threadName) + "\"," +
@@ -546,7 +548,8 @@ void HandleClose(const ulong dealTicket)
                  "**Precio cierre:** " + DoubleToString(info.price, _Digits) + "\\n" +
                  "**Volumen:** " + DoubleToString(info.volume, 2) + "\\n" +
                  "**Simbolo:** " + info.symbol + "\\n" +
-                 "**Hora cierre:** " + TimeToString(info.time, TIME_DATE|TIME_MINUTES);
+                 "**Hora cierre:** " + TimeToString(info.time, TIME_DATE|TIME_MINUTES) + "\\n" +
+                 "**Ticket:**" + (string)info.positionId;
 
    string json = "{" +
                  "\"embeds\":[{" +
