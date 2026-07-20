@@ -470,24 +470,20 @@ void HandleOpen(const ulong dealTicket)
    bool hasSL = MoneyForLevel(info.type, info.symbol, info.volume, info.price, info.sl, riskMoney);
    bool hasTP = MoneyForLevel(info.type, info.symbol, info.volume, info.price, info.tp, rewardMoney);
 
-   string desc = "**Entry:** " + DoubleToString(info.price, _Digits) + "\\n" +
+  string desc =  "## Trade abierto \\n" +
+                 "**Entry:** " + DoubleToString(info.price, _Digits) + "\\n" +
                  "**SL:** " + DoubleToString(info.sl, _Digits) + " • " + MoneyText(hasSL, riskMoney) + "\\n" +
                  "**TP:** " + DoubleToString(info.tp, _Digits) + " • " + MoneyText(hasTP, rewardMoney) + "\\n" +
-                 "\\n"+
-                 "**Simbolo:** " + info.symbol + "\\n" +
+                 "\\n" +
                  "**Tipo:** " + TypeToStr(info.type) + "\\n" +
                  "**Volumen:** " + DoubleToString(info.volume, 2) + "\\n" +
-                 "**Hora:** " + TimeToString(info.time, TIME_DATE|TIME_MINUTES)+ "\\n" +
+                 "**Simbolo:** " + info.symbol + "\\n" +  
+                 "**Hora MX:** " + FormatLocalDate(TimeLocal()) + "\\n" +
                  "**Ticket:** " + (string)info.positionId;
-
+ 
    string json = "{" +
                  "\"thread_name\":\"" + JsonEscape(threadName) + "\"," +
-                 "\"embeds\":[{" +
-                    "\"title\":\"Trade abierto\"," +
-                    "\"description\":\"" + desc + "\"," +
-                    "\"color\":3066993," +
-                    "\"image\":{\"url\":\"attachment://" + fileName + "\"}" +
-                 "}]" +
+                 "\"content\":\"" + desc + "\"" +
                  "}";
 
    string webhookUrl = InpWebhookURL;
@@ -548,7 +544,7 @@ void HandleClose(const ulong dealTicket)
                  "**Precio cierre:** " + DoubleToString(info.price, _Digits) + "\\n" +
                  "**Volumen:** " + DoubleToString(info.volume, 2) + "\\n" +
                  "**Simbolo:** " + info.symbol + "\\n" +
-                 "**Hora cierre:** " + TimeToString(info.time, TIME_DATE|TIME_MINUTES) + "\\n" +
+                 "**Hora MX:** " + FormatLocalDate(TimeLocal()) + "\\n" + //"**Hora cierre:** " + TimeToString(info.time, TIME_DATE|TIME_MINUTES) + "\\n" +
                  "**Ticket:** " + (string)info.positionId;
 
    string json = "{" +
