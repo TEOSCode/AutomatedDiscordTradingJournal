@@ -114,7 +114,7 @@ string FormatLocalDate(const datetime t)
  
    int hour12 = dt.hour % 12;
    if(hour12 == 0) hour12 = 12;
-   string ampm = (dt.hour < 12) ? "am" : "pm";
+   string ampm = (dt.hour < 12) ? " AM" : " PM";
  
    return dayNames[dt.day_of_week] + " " +
           StringFormat("%02d", dt.day) + " " +
