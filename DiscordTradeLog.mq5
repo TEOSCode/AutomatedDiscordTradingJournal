@@ -536,10 +536,12 @@ void HandleClose(const ulong dealTicket)
       return;
 
    string embedColor = (info.profit >= 0) ? "3066993" : "15158332"; // verde / rojo
+   string tradeResult = (info.profit >= 0) ? "Win" : "Loss"; // verde / rojo
    long   reasonRaw   = HistoryDealGetInteger(dealTicket, DEAL_REASON);
    string reasonText  = DealReasonToText(reasonRaw);
 
    string desc = "## Profit: $ " + DoubleToString(info.profit, 2) + "\\n" +
+                 "**Result:** " + tradeResult + "\\n" +
                  "**Motivo de cierre:** " + reasonText + "\\n" +
                  "**Precio cierre:** " + DoubleToString(info.price, _Digits) + "\\n" +
                  "**Volumen:** " + DoubleToString(info.volume, 2) + "\\n" +
