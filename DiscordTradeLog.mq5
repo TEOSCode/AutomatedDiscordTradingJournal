@@ -89,6 +89,24 @@ string MoneyText(const bool has, const double money)
    return sign + "$" + DoubleToString(MathAbs(money), 2) + " " + AccountInfoString(ACCOUNT_CURRENCY);
 }
 
+//+------------------------------------------------------------------+
+//| Calcula y formatea el R:R (relacion riesgo:beneficio) a partir     |
+//| del dinero en riesgo (SL) y en beneficio (TP). Devuelve "No       |
+//| disponible" si falta alguno de los dos o el riesgo es 0.          |
+//+------------------------------------------------------------------+
+string RRText(const bool hasSL, const double riskMoney, const bool hasTP, const double rewardMoney)
+{
+   if(!hasSL || !hasTP) return "No disponible";
+ 
+   double risk   = MathAbs(riskMoney);
+   double reward = MathAbs(rewardMoney);
+ 
+   if(risk <= 0.0) return "No disponible";
+ 
+   double ratio = reward / risk;
+   return "1:" + DoubleToString(ratio, 2);
+}
+
 string DealReasonToText(const long reason)
 {
    switch((ENUM_DEAL_REASON)reason)
@@ -681,6 +699,7 @@ void HandleOpen(const ulong dealTicket)
                  "**Entry:** " + DoubleToString(info.price, _Digits) + "\\n" +
                  "**SL:** " + DoubleToString(info.sl, _Digits) + " • " + MoneyText(hasSL, riskMoney) + "\\n" +
                  "**TP:** " + DoubleToString(info.tp, _Digits) + " • " + MoneyText(hasTP, rewardMoney) + "\\n" +
+                 "**R:R:** " + RRText(hasSL, riskMoney, hasTP, rewardMoney) + "\\n" +
                  "\\n" +
                  "**Tipo:** " + TypeToStr(info.type) + "\\n" +
                  "**Volumen:** " + DoubleToString(info.volume, 2) + "\\n" +
@@ -842,7 +861,8 @@ void HandleSLTPChange(const ulong positionTicket)
    string desc = "**SL: ** " + DoubleToString(curSL, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) +
                  "  •  " + MoneyText(hasSL, riskMoney) + "\\n" +
                  "**TP: ** " + DoubleToString(curTP, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) +
-                 "  •  " + MoneyText(hasTP, rewardMoney) + "";
+                 "  •  " + MoneyText(hasTP, rewardMoney) + "\\n" +
+                 "**R:R:** " + RRText(hasSL, riskMoney, hasTP, rewardMoney);
 
    string json = "{" +
                  "\"embeds\":[{" +
