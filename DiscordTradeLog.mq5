@@ -677,7 +677,7 @@ void HandleOpen(const ulong dealTicket)
    bool hasSL = MoneyForLevel(info.type, info.symbol, info.volume, info.price, info.sl, riskMoney);
    bool hasTP = MoneyForLevel(info.type, info.symbol, info.volume, info.price, info.tp, rewardMoney);
 
-  string desc =  "✅ ## Trade abierto \\n" +
+  string desc =  "## ✅ Trade abierto \\n" +
                  "**Entry:** " + DoubleToString(info.price, _Digits) + "\\n" +
                  "**SL:** " + DoubleToString(info.sl, _Digits) + " • " + MoneyText(hasSL, riskMoney) + "\\n" +
                  "**TP:** " + DoubleToString(info.tp, _Digits) + " • " + MoneyText(hasTP, rewardMoney) + "\\n" +
@@ -748,7 +748,7 @@ void HandleClose(const ulong dealTicket)
    long   reasonRaw   = HistoryDealGetInteger(dealTicket, DEAL_REASON);
    string reasonText  = DealReasonToText(reasonRaw);
 
-   string desc = resultEmoji + " ## P/L: $ " + DoubleToString(info.profit, 2) + "\\n" +
+   string desc = " ## "+ resultEmoji +" P/L: $ " + DoubleToString(info.profit, 2) + "\\n" +
                  "**Result:** " + tradeResult + "\\n" +
                  "**Motivo de cierre:** " + reasonText + "\\n" +
                  "**Precio cierre:** " + DoubleToString(info.price, _Digits) + "\\n" +
@@ -906,7 +906,9 @@ int OnInit()
       Print("ADVERTENCIA: configura InpWebhookURL con tu webhook real de Discord.");
    if(InpBotToken == "" || InpBotToken == "TU_BOT_TOKEN_AQUI")
       Print("ADVERTENCIA: configura InpBotToken para poder actualizar threads al cerrar.");
-
+      
+   LoadForumTags();
+   
    return(INIT_SUCCEEDED);
 }
 
