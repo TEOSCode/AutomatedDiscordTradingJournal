@@ -107,6 +107,25 @@ string RRText(const bool hasSL, const double riskMoney, const bool hasTP, const 
    return "1:" + DoubleToString(ratio, 2);
 }
 
+ 
+//+------------------------------------------------------------------+
+//| Calcula el R "realizado": cuantos multiplos del riesgo INICIAL    |
+//| se ganaron o perdieron en la realidad, segun el profit real del   |
+//| cierre. A diferencia del R:R planeado, este NO usa el TP -- asi   |
+//| no se puede inflar moviendo el SL con trailing despues de abrir.  |
+//+------------------------------------------------------------------+
+string RealizedRText(const bool hasInitSL, const double initRiskMoney, const double profit)
+{
+   if(!hasInitSL) return "No disponible";
+ 
+   double risk = MathAbs(initRiskMoney);
+   if(risk <= 0.0) return "No disponible";
+ 
+   double r = profit / risk;
+   string sign = (r >= 0) ? "+" : "-";
+   return sign + DoubleToString(MathAbs(r), 2) + "R";
+}
+
 string DealReasonToText(const long reason)
 {
    switch((ENUM_DEAL_REASON)reason)
@@ -381,129 +400,96 @@ bool ApplyTagToThread(const string threadId, const string tagId)
 }
 
 //+------------------------------------------------------------------+
-//| Mapeo local ticket(posicion) -> thread_id (CSV simple)            |
+//| Registro persistente por posicion, guardado en disco (CSV):       |
+//| ticket, threadId, initSL, initTP, initOpenPrice, lastSL, lastTP   |
+//|                                                                    |
+//| Se agrega una fila nueva cada vez que algo cambia (apertura o     |
+//| ajuste de SL/TP); al leer, se toma la ULTIMA fila de ese ticket,  |
+//| que siempre trae los valores mas recientes. Al vivir en disco,    |
+//| esta informacion sobrevive a reinicios de MT5, recompilaciones o  |
+//| apagones de PC (a diferencia de un arreglo en memoria).           |
 //+------------------------------------------------------------------+
-bool SaveMapping(const long positionId, const string threadId)
+struct TradeRecord
+{
+   string threadId;
+   double initSL;
+   double initTP;
+   double initOpenPrice;
+   double lastSL;
+   double lastTP;
+};
+ 
+bool SaveTradeRecord(const long positionId, const TradeRecord &rec)
 {
    int handle = FileOpen(InpMappingFile, FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
    if(handle == INVALID_HANDLE)
       handle = FileOpen(InpMappingFile, FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
    if(handle == INVALID_HANDLE) return false;
-
+ 
    FileSeek(handle, 0, SEEK_END);
-   FileWrite(handle, (string)positionId, threadId);
+   FileWrite(handle, (string)positionId, rec.threadId,
+             DoubleToString(rec.initSL, 10), DoubleToString(rec.initTP, 10),
+             DoubleToString(rec.initOpenPrice, 10),
+             DoubleToString(rec.lastSL, 10), DoubleToString(rec.lastTP, 10));
    FileClose(handle);
    return true;
 }
-
-string LoadMapping(const long positionId)
+ 
+bool LoadTradeRecord(const long positionId, TradeRecord &rec)
 {
-   string result = "";
-   if(!FileIsExist(InpMappingFile)) return result;
-
+   if(!FileIsExist(InpMappingFile)) return false;
+ 
    int handle = FileOpen(InpMappingFile, FILE_READ|FILE_CSV|FILE_ANSI, ',');
-   if(handle == INVALID_HANDLE) return result;
-
+   if(handle == INVALID_HANDLE) return false;
+ 
    string target = (string)positionId;
+   bool found = false;
+ 
    while(!FileIsEnding(handle))
    {
-      string idStr    = FileReadString(handle);
+      string idStr = FileReadString(handle);
       if(idStr == "") break;
-      string threadId = FileReadString(handle);
+ 
+      // Leemos cada campo solo si la linea todavia no termino. Esto hace el
+      // parser robusto ante filas viejas con menos columnas (por ejemplo,
+      // del formato anterior a agregar esta persistencia en disco, que solo
+      // tenia ticket,threadId) -- sin esto, una fila corta desalinea la
+      // lectura de TODAS las filas siguientes en el archivo.
+      string threadId    = "";
+      string initSLStr   = "0";
+      string initTPStr   = "0";
+      string initOpenStr = "0";
+      string lastSLStr   = "0";
+      string lastTPStr   = "0";
+ 
+      if(!FileIsLineEnding(handle)) threadId    = FileReadString(handle);
+      if(!FileIsLineEnding(handle)) initSLStr   = FileReadString(handle);
+      if(!FileIsLineEnding(handle)) initTPStr   = FileReadString(handle);
+      if(!FileIsLineEnding(handle)) initOpenStr = FileReadString(handle);
+      if(!FileIsLineEnding(handle)) lastSLStr   = FileReadString(handle);
+      if(!FileIsLineEnding(handle)) lastTPStr   = FileReadString(handle);
+ 
+      // por si la fila tuviera MAS columnas de las esperadas, consumimos
+      // lo que sobre hasta el salto de linea para no desalinear la siguiente
+      while(!FileIsLineEnding(handle) && !FileIsEnding(handle))
+         FileReadString(handle);
+ 
       if(idStr == target)
       {
-         result = threadId;
-         // seguimos leyendo hasta el final por si hay actualizaciones mas nuevas
+         rec.threadId      = threadId;
+         rec.initSL        = StringToDouble(initSLStr);
+         rec.initTP        = StringToDouble(initTPStr);
+         rec.initOpenPrice = StringToDouble(initOpenStr);
+         rec.lastSL        = StringToDouble(lastSLStr);
+         rec.lastTP        = StringToDouble(lastTPStr);
+         found = true;
+         // seguimos leyendo hasta el final por si hay filas mas nuevas
       }
    }
    FileClose(handle);
-   return result;
+   return found;
 }
-
-//+------------------------------------------------------------------+
-//| Cache en memoria de ultimo SL/TP conocido por posicion, para      |
-//| detectar cambios reales y no reenviar cuando no cambio nada.      |
-//+------------------------------------------------------------------+
-ulong  g_cacheTicket[];
-double g_cacheSL[];
-double g_cacheTP[];
-
-bool CacheGet(const ulong ticket, double &sl, double &tp)
-{
-   for(int i = 0; i < ArraySize(g_cacheTicket); i++)
-   {
-      if(g_cacheTicket[i] == ticket)
-      {
-         sl = g_cacheSL[i];
-         tp = g_cacheTP[i];
-         return true;
-      }
-   }
-   return false;
-}
-
-void CacheSet(const ulong ticket, const double sl, const double tp)
-{
-   for(int i = 0; i < ArraySize(g_cacheTicket); i++)
-   {
-      if(g_cacheTicket[i] == ticket)
-      {
-         g_cacheSL[i] = sl;
-         g_cacheTP[i] = tp;
-         return;
-      }
-   }
-   int n = ArraySize(g_cacheTicket);
-   ArrayResize(g_cacheTicket, n + 1);
-   ArrayResize(g_cacheSL, n + 1);
-   ArrayResize(g_cacheTP, n + 1);
-   g_cacheTicket[n] = ticket;
-   g_cacheSL[n]     = sl;
-   g_cacheTP[n]     = tp;
-}
-
-//+------------------------------------------------------------------+
-//| Cache en memoria del SL/TP INICIAL por posicion (se guarda una    |
-//| sola vez al abrir y nunca se sobreescribe), para poder comparar   |
-//| el R:R de apertura contra el R:R del ultimo cambio al cerrar.     |
-//+------------------------------------------------------------------+
-ulong  g_initTicket[];
-double g_initSL[];
-double g_initTP[];
-double g_initOpenPrice[];
  
-bool InitialCacheGet(const ulong ticket, double &sl, double &tp, double &openPrice)
-{
-   for(int i = 0; i < ArraySize(g_initTicket); i++)
-   {
-      if(g_initTicket[i] == ticket)
-      {
-         sl        = g_initSL[i];
-         tp        = g_initTP[i];
-         openPrice = g_initOpenPrice[i];
-         return true;
-      }
-   }
-   return false;
-}
-void InitialCacheSet(const ulong ticket, const double sl, const double tp, const double openPrice)
-{
-   // solo se guarda si no existe ya un valor inicial para este ticket
-   for(int i = 0; i < ArraySize(g_initTicket); i++)
-      if(g_initTicket[i] == ticket)
-         return;
- 
-   int n = ArraySize(g_initTicket);
-   ArrayResize(g_initTicket, n + 1);
-   ArrayResize(g_initSL, n + 1);
-   ArrayResize(g_initTP, n + 1);
-   ArrayResize(g_initOpenPrice, n + 1);
-   g_initTicket[n]    = ticket;
-   g_initSL[n]        = sl;
-   g_initTP[n]        = tp;
-   g_initOpenPrice[n] = openPrice;
-}
-
 //+------------------------------------------------------------------+
 //| Envia un mensaje de solo texto (embed, sin imagen) a un thread    |
 //| existente usando el bot token.                                    |
@@ -772,8 +758,14 @@ void HandleOpen(const ulong dealTicket)
 
    if(threadId != "")
    {
-      SaveMapping((long)info.positionId, threadId);
-      CacheSet(info.positionId, info.sl, info.tp);
+      TradeRecord rec;
+      rec.threadId      = threadId;
+      rec.initSL        = info.sl; // si aun no esta fijado (0), se completara despues
+      rec.initTP        = info.tp;
+      rec.initOpenPrice = info.price;
+      rec.lastSL        = info.sl;
+      rec.lastTP        = info.tp;
+      SaveTradeRecord((long)info.positionId, rec);
       Print("Thread creado para posicion ", info.positionId, " -> thread_id=", threadId);
    }
    else
@@ -789,15 +781,18 @@ void HandleClose(const ulong dealTicket)
 {
    DealInfo info;
    FillDealInfo(dealTicket, info);
-
-   string threadId = LoadMapping((long)info.positionId);
-   if(threadId == "")
+ 
+   TradeRecord rec;
+   bool foundRecord = LoadTradeRecord((long)info.positionId, rec);
+   if(!foundRecord || rec.threadId == "")
    {
       Print("No se encontro thread_id para la posicion ", info.positionId,
-            " (se perdio el mapeo o nunca se creo el thread de apertura)");
+            " (se perdio el registro o nunca se creo el thread de apertura)");
       return;
    }
-
+   
+   string threadId = rec.threadId;
+   
    string fileName = "close_" + (string)info.positionId + ".png";
    uchar imgBytes[];
    if(!CaptureChart(fileName, imgBytes))
@@ -808,41 +803,26 @@ void HandleClose(const ulong dealTicket)
    string tradeResult = (info.profit >= 0) ? "Win" : "Loss"; // verde / rojo
    long   reasonRaw   = HistoryDealGetInteger(dealTicket, DEAL_REASON);
    string reasonText  = DealReasonToText(reasonRaw);
-   
-   // El precio de apertura real se guardo en la cache al abrir (info.price
-   // aqui en cierre es el precio de CIERRE, no sirve como referencia de entrada).
-   double initSL = 0, initTP = 0, openPrice = 0;
-   bool   foundInit = InitialCacheGet(info.positionId, initSL, initTP, openPrice);
  
-   string rrInicial = "No disponible";
-   if(foundInit)
-   {
-      double initRisk = 0, initReward = 0;
-      bool initHasSL = MoneyForLevel(info.type, info.symbol, info.volume, openPrice, initSL, initRisk);
-      bool initHasTP = MoneyForLevel(info.type, info.symbol, info.volume, openPrice, initTP, initReward);
-      rrInicial = RRText(initHasSL, initRisk, initHasTP, initReward);
-   }
+   // R:R planeado: SIEMPRE con el SL/TP INICIAL (el primero que quedo fijado),
+   // nunca con el ultimo conocido -- si usaramos el ultimo, un trailing stop
+   // inflaria el R:R con el tiempo sin que el sistema realmente haya mejorado.
+   double initRisk = 0, initReward = 0;
+   bool initHasSL = MoneyForLevel(info.type, info.symbol, info.volume, rec.initOpenPrice, rec.initSL, initRisk);
+   bool initHasTP = MoneyForLevel(info.type, info.symbol, info.volume, rec.initOpenPrice, rec.initTP, initReward);
+   string rrPlaneado = RRText(initHasSL, initRisk, initHasTP, initReward);
  
-   // El R:R del ultimo cambio usa el ultimo SL/TP conocido (guardado en cache
-   // cada vez que se modifico), tambien contra el precio de apertura real.
-   double lastSL = 0, lastTP = 0;
-   bool   foundCache = CacheGet(info.positionId, lastSL, lastTP);
+   // R realizado: cuantos "R" (multiplos del riesgo inicial) se ganaron o
+   // perdieron en la realidad, segun el profit real del cierre -- no depende
+   // del TP ni de ajustes posteriores de SL, asi que no se puede inflar.
+   string rRealizado = RealizedRText(initHasSL, initRisk, info.profit);
  
-   string rrUltimo = "No disponible";
-   if(foundCache && foundInit)
-   {
-      double lastRisk = 0, lastReward = 0;
-      bool lastHasSL = MoneyForLevel(info.type, info.symbol, info.volume, openPrice, lastSL, lastRisk);
-      bool lastHasTP = MoneyForLevel(info.type, info.symbol, info.volume, openPrice, lastTP, lastReward);
-      rrUltimo = RRText(lastHasSL, lastRisk, lastHasTP, lastReward);
-   }
-
    string desc = " ## "+ resultEmoji +" P/L: $ " + DoubleToString(info.profit, 2) + "\\n" +
                  "**Result:** " + tradeResult + "\\n" +
                  "**Motivo de cierre:** " + reasonText + "\\n" +
                  "**Precio cierre:** " + DoubleToString(info.price, _Digits) + "\\n" +
-                 "**R:R inicial:** " + rrInicial + "\\n" +
-                 "**R:R ultimo cambio:** " + rrUltimo + "\\n" +
+                 "**R:R planeado:** " + rrPlaneado + "\\n" +
+                 "**R realizado:** " + rRealizado + "\\n" +
                  "**Volumen:** " + DoubleToString(info.volume, 2) + "\\n" +
                  "**Simbolo:** " + info.symbol + "\\n" +
                  "**Hora MX:** " + FormatLocalDate(TimeLocal()) + "\\n" + //"**Hora cierre:** " + TimeToString(info.time, TIME_DATE|TIME_MINUTES) + "\\n" +
@@ -896,40 +876,52 @@ void HandleClose(const ulong dealTicket)
 void HandleSLTPChange(const ulong positionTicket)
 {
    if(!PositionSelectByTicket(positionTicket))
-      return;
-
-   double curSL = PositionGetDouble(POSITION_SL);
-   double curTP = PositionGetDouble(POSITION_TP);
-
-   double cachedSL = 0, cachedTP = 0;
-   bool found = CacheGet(positionTicket, cachedSL, cachedTP);
-
-   // si no lo conociamos aun, solo lo registramos (evita falso positivo
-   // justo despues de la apertura, antes de que HandleOpen lo cachee)
-   if(!found)
    {
-      CacheSet(positionTicket, curSL, curTP);
+      Print("HandleSLTPChange: no se pudo seleccionar la posicion ", positionTicket);
       return;
    }
-
-   if(cachedSL == curSL && cachedTP == curTP)
+ 
+   double curSL = PositionGetDouble(POSITION_SL);
+   double curTP = PositionGetDouble(POSITION_TP);
+ 
+   TradeRecord rec;
+   bool found = LoadTradeRecord((long)positionTicket, rec);
+ 
+   // si aun no hay registro (el thread de apertura no se ha creado/procesado
+   // todavia), no hay donde notificar ni que actualizar
+   if(!found || rec.threadId == "")
+   {
+      Print("HandleSLTPChange: no hay registro/thread para la posicion ", positionTicket,
+            " (found=", found, "); no se notifica el cambio de SL/TP.");
+      return;
+   }
+ 
+   if(rec.lastSL == curSL && rec.lastTP == curTP)
       return; // no hubo cambio real
-
-   CacheSet(positionTicket, curSL, curTP);
-
-   string threadId = LoadMapping((long)positionTicket);
-   if(threadId == "")
-      return; // no hay thread asociado (o se perdio el mapeo)
-
+ 
+   // El SL/TP INICIAL se fija la primera vez que cada uno deja de ser 0.
+   // Cubre ambos casos: se fijo al abrir, o se abrio sin SL/TP y se agrego
+   // despues. Una vez fijado, nunca se vuelve a tocar (para que el R:R
+   // planeado no se pueda inflar moviendo el SL con trailing).
+   if(rec.initSL == 0 && curSL > 0)
+      rec.initSL = curSL;
+   if(rec.initTP == 0 && curTP > 0)
+      rec.initTP = curTP;
+ 
+   rec.lastSL = curSL;
+   rec.lastTP = curTP;
+   SaveTradeRecord((long)positionTicket, rec);
+ 
+   string threadId = rec.threadId;
    string symbol   = PositionGetString(POSITION_SYMBOL);
    double volume   = PositionGetDouble(POSITION_VOLUME);
    double openPr   = PositionGetDouble(POSITION_PRICE_OPEN);
    ENUM_DEAL_TYPE dtype = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL) ? DEAL_TYPE_SELL : DEAL_TYPE_BUY;
-
+ 
    double riskMoney = 0, rewardMoney = 0;
    bool hasSL = MoneyForLevel(dtype, symbol, volume, openPr, curSL, riskMoney);
    bool hasTP = MoneyForLevel(dtype, symbol, volume, openPr, curTP, rewardMoney);
-
+   
    string desc = "**SL: ** " + DoubleToString(curSL, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) +
                  "  •  " + MoneyText(hasSL, riskMoney) + "\\n" +
                  "**TP: ** " + DoubleToString(curTP, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) +
@@ -944,9 +936,10 @@ void HandleSLTPChange(const ulong positionTicket)
                  "}]" +
                  "}";
 
+ 
    string response; int httpCode;
    bool ok = SendPlainEmbedToThread(threadId, json, response, httpCode);
-
+ 
    if(!ok)
       Print("Fallo al notificar cambio de SL/TP. HTTP=", httpCode, " Respuesta=", response);
    else
@@ -998,9 +991,9 @@ int OnInit()
       Print("ADVERTENCIA: configura InpWebhookURL con tu webhook real de Discord.");
    if(InpBotToken == "" || InpBotToken == "TU_BOT_TOKEN_AQUI")
       Print("ADVERTENCIA: configura InpBotToken para poder actualizar threads al cerrar.");
-      
+ 
    LoadForumTags();
-   
+ 
    return(INIT_SUCCEEDED);
 }
 
