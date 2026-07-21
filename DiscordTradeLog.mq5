@@ -31,6 +31,12 @@ input int    InpShotHeight      = 2160;
 input int    InpHttpTimeoutMs   = 8000;
 input bool   InpDeleteLocalPng  = true;  // borrar el PNG local despues de enviarlo
 
+//--- Etiquetas del canal foro (deben existir ya creadas en Discord con estos nombres exactos)
+input string InpTagWin         = "Win";  // Nombre de la etiqueta para trades ganadores
+input string InpTagLoss        = "Loss"; // Nombre de la etiqueta para trades perdedores
+input string InpTagBE          = "BE";   // Nombre de la etiqueta para break-even
+input double InpBEThreshold     = 1.0;   // +/- dinero para considerar el trade "BE" (break-even)
+
 //+------------------------------------------------------------------+
 //| Utilidades de texto / JSON minimo                                 |
 //+------------------------------------------------------------------+
@@ -153,6 +159,207 @@ string JsonExtract(const string json, const string key)
       i++;
    }
    return StringSubstr(json, start, i - start);
+}
+
+//+------------------------------------------------------------------+
+//| Extrae pares id/name de un arreglo JSON de objetos planos, como   |
+//| el "available_tags" de un canal foro de Discord. Asume que los    |
+//| objetos no tienen llaves anidadas (cierto para tags de Discord).  |
+//+------------------------------------------------------------------+
+void ParseAvailableTags(const string json, string &names[], string &ids[])
+{
+   ArrayResize(names, 0);
+   ArrayResize(ids, 0);
+ 
+   string marker = "\"available_tags\":[";
+   int arrStart = StringFind(json, marker);
+   if(arrStart < 0) return;
+ 
+   int pos = arrStart + StringLen(marker);
+   int endArr = StringFind(json, "]", pos);
+   if(endArr < 0) return;
+ 
+   string arrText = StringSubstr(json, pos, endArr - pos);
+   int len = StringLen(arrText);
+   int i = 0;
+ 
+   while(i < len)
+   {
+      int objStart = StringFind(arrText, "{", i);
+      if(objStart < 0) break;
+      int objEnd = StringFind(arrText, "}", objStart);
+      if(objEnd < 0) break;
+ 
+      string objText = StringSubstr(arrText, objStart, objEnd - objStart + 1);
+      string tagId    = JsonExtract(objText, "id");
+      string tagName  = JsonExtract(objText, "name");
+ 
+      if(tagId != "" && tagName != "")
+      {
+         int n = ArraySize(names);
+         ArrayResize(names, n + 1);
+         ArrayResize(ids,   n + 1);
+         names[n] = tagName;
+         ids[n]   = tagId;
+      }
+ 
+      i = objEnd + 1;
+   }
+}
+ 
+//+------------------------------------------------------------------+
+//| Extrae el id y el token de una URL de webhook de Discord.         |
+//+------------------------------------------------------------------+
+bool ParseWebhookIdToken(const string url, string &id, string &token)
+{
+   string marker = "/webhooks/";
+   int pos = StringFind(url, marker);
+   if(pos < 0) return false;
+ 
+   string rest = StringSubstr(url, pos + StringLen(marker));
+   int slash = StringFind(rest, "/");
+   if(slash < 0) return false;
+ 
+   id = StringSubstr(rest, 0, slash);
+ 
+   string tokenPart = StringSubstr(rest, slash + 1);
+   int qpos = StringFind(tokenPart, "?");
+   if(qpos >= 0) tokenPart = StringSubstr(tokenPart, 0, qpos);
+   token = tokenPart;
+   return true;
+}
+ 
+//+------------------------------------------------------------------+
+//| Consulta el propio webhook para obtener el channel_id del canal   |
+//| foro al que esta conectado (asi no se pide ese ID por separado).  |
+//+------------------------------------------------------------------+
+string GetForumChannelId()
+{
+   string whId, whToken;
+   if(!ParseWebhookIdToken(InpWebhookURL, whId, whToken))
+   {
+      Print("No se pudo extraer id/token del webhook (revisa InpWebhookURL).");
+      return "";
+   }
+ 
+   string url = "https://discord.com/api/v10/webhooks/" + whId + "/" + whToken;
+   uchar data[], result[];
+   string resultHeaders;
+ 
+   ResetLastError();
+   int code = WebRequest("GET", url, "", InpHttpTimeoutMs, data, result, resultHeaders);
+   if(code == -1)
+   {
+      Print("WebRequest (GET webhook) fallo. Error: ", GetLastError());
+      return "";
+   }
+ 
+   string response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+   if(code < 200 || code >= 300)
+   {
+      Print("No se pudo obtener info del webhook. HTTP=", code, " Respuesta=", response);
+      return "";
+   }
+ 
+   return JsonExtract(response, "channel_id");
+}
+ 
+//+------------------------------------------------------------------+
+//| Cache en memoria de las etiquetas disponibles en el canal foro    |
+//| (nombre -> id), cargada una vez al iniciar el EA.                 |
+//+------------------------------------------------------------------+
+string g_tagNames[];
+string g_tagIds[];
+bool   g_tagsLoaded = false;
+ 
+void LoadForumTags()
+{
+   string channelId = GetForumChannelId();
+   if(channelId == "")
+   {
+      Print("No se pudieron cargar las etiquetas del foro (no se obtuvo el channel_id del webhook).");
+      return;
+   }
+ 
+   string url     = "https://discord.com/api/v10/channels/" + channelId;
+   string headers = "Authorization: Bot " + InpBotToken + "\r\n";
+   uchar data[], result[];
+   string resultHeaders;
+ 
+   ResetLastError();
+   int code = WebRequest("GET", url, headers, InpHttpTimeoutMs, data, result, resultHeaders);
+   if(code == -1)
+   {
+      Print("WebRequest (GET channel) fallo. Error: ", GetLastError());
+      return;
+   }
+ 
+   string response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+   if(code < 200 || code >= 300)
+   {
+      Print("No se pudo obtener info del canal foro. HTTP=", code, " Respuesta=", response);
+      return;
+   }
+ 
+   ParseAvailableTags(response, g_tagNames, g_tagIds);
+ 
+   if(ArraySize(g_tagNames) == 0)
+      Print("ADVERTENCIA: no se encontraron etiquetas en el canal foro (available_tags vacio).");
+   else
+   {
+      g_tagsLoaded = true;
+      Print("Etiquetas del foro cargadas: ", ArraySize(g_tagNames));
+   }
+}
+ 
+string FindTagId(const string tagName)
+{
+   for(int i = 0; i < ArraySize(g_tagNames); i++)
+      if(g_tagNames[i] == tagName)
+         return g_tagIds[i];
+   return "";
+}
+ 
+//+------------------------------------------------------------------+
+//| Clasifica el resultado del trade segun el profit y el umbral de   |
+//| break-even configurado, devolviendo el NOMBRE de etiqueta a usar. |
+//+------------------------------------------------------------------+
+string ClassifyResult(const double profit)
+{
+   if(MathAbs(profit) <= InpBEThreshold) return InpTagBE;
+   if(profit > 0) return InpTagWin;
+   return InpTagLoss;
+}
+ 
+//+------------------------------------------------------------------+
+//| Aplica una etiqueta (por su id) a un thread ya existente.         |
+//+------------------------------------------------------------------+
+bool ApplyTagToThread(const string threadId, const string tagId)
+{
+   string url     = "https://discord.com/api/v10/channels/" + threadId;
+   string headers = "Authorization: Bot " + InpBotToken + "\r\n" +
+                     "Content-Type: application/json\r\n";
+   string json    = "{\"applied_tags\":[\"" + tagId + "\"]}";
+ 
+   uchar data[];
+   StringToCharArray(json, data, 0, StringLen(json), CP_UTF8);
+ 
+   uchar result[];
+   string resultHeaders;
+ 
+   ResetLastError();
+   int code = WebRequest("PATCH", url, headers, InpHttpTimeoutMs, data, result, resultHeaders);
+   if(code == -1)
+   {
+      Print("WebRequest (PATCH applied_tags) fallo. Error: ", GetLastError());
+      return false;
+   }
+ 
+   string response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+   bool ok = (code >= 200 && code < 300);
+   if(!ok)
+      Print("Fallo al aplicar etiqueta. HTTP=", code, " Respuesta=", response);
+   return ok;
 }
 
 //+------------------------------------------------------------------+
@@ -470,7 +677,7 @@ void HandleOpen(const ulong dealTicket)
    bool hasSL = MoneyForLevel(info.type, info.symbol, info.volume, info.price, info.sl, riskMoney);
    bool hasTP = MoneyForLevel(info.type, info.symbol, info.volume, info.price, info.tp, rewardMoney);
 
-  string desc =  "## Trade abierto \\n" +
+  string desc =  "✅ ## Trade abierto \\n" +
                  "**Entry:** " + DoubleToString(info.price, _Digits) + "\\n" +
                  "**SL:** " + DoubleToString(info.sl, _Digits) + " • " + MoneyText(hasSL, riskMoney) + "\\n" +
                  "**TP:** " + DoubleToString(info.tp, _Digits) + " • " + MoneyText(hasTP, rewardMoney) + "\\n" +
@@ -534,13 +741,14 @@ void HandleClose(const ulong dealTicket)
    uchar imgBytes[];
    if(!CaptureChart(fileName, imgBytes))
       return;
-
+   
+   string resultEmoji = (info.profit >= 0) ? "✅" : "❌";
    string embedColor = (info.profit >= 0) ? "3066993" : "15158332"; // verde / rojo
    string tradeResult = (info.profit >= 0) ? "Win" : "Loss"; // verde / rojo
    long   reasonRaw   = HistoryDealGetInteger(dealTicket, DEAL_REASON);
    string reasonText  = DealReasonToText(reasonRaw);
 
-   string desc = "## P/L: $ " + DoubleToString(info.profit, 2) + "\\n" +
+   string desc = resultEmoji + " ## P/L: $ " + DoubleToString(info.profit, 2) + "\\n" +
                  "**Result:** " + tradeResult + "\\n" +
                  "**Motivo de cierre:** " + reasonText + "\\n" +
                  "**Precio cierre:** " + DoubleToString(info.price, _Digits) + "\\n" +
@@ -568,6 +776,25 @@ void HandleClose(const ulong dealTicket)
       Print("Fallo al actualizar thread de cierre. HTTP=", httpCode, " Respuesta=", response);
    else
       Print("Thread actualizado con el cierre de la posicion ", info.positionId);
+      
+   // --- Etiquetar el thread segun el resultado (Win / Loss / BE) ---
+   if(!g_tagsLoaded)
+   {
+      Print("Etiquetas del foro no disponibles; no se etiqueto el thread.");
+      return;
+   }
+ 
+   string tagName = ClassifyResult(info.profit);
+   string tagId    = FindTagId(tagName);
+ 
+   if(tagId == "")
+   {
+      Print("No se encontro la etiqueta '", tagName, "' en el canal foro ",
+            "(verifica que el nombre coincida exactamente con el input correspondiente).");
+      return;
+   }
+ 
+   ApplyTagToThread(threadId, tagId);
 }
 
 //+------------------------------------------------------------------+
@@ -619,7 +846,7 @@ void HandleSLTPChange(const ulong positionTicket)
 
    string json = "{" +
                  "\"embeds\":[{" +
-                    "\"title\":\"SL/TP actualizado\"," +
+                    "\"title\":\"🔁 SL/TP actualizado\"," +
                     "\"description\":\"" + desc + "\"," +
                     "\"color\":3447003" +
                  "}]" +
