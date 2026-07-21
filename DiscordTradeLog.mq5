@@ -463,6 +463,48 @@ void CacheSet(const ulong ticket, const double sl, const double tp)
 }
 
 //+------------------------------------------------------------------+
+//| Cache en memoria del SL/TP INICIAL por posicion (se guarda una    |
+//| sola vez al abrir y nunca se sobreescribe), para poder comparar   |
+//| el R:R de apertura contra el R:R del ultimo cambio al cerrar.     |
+//+------------------------------------------------------------------+
+ulong  g_initTicket[];
+double g_initSL[];
+double g_initTP[];
+double g_initOpenPrice[];
+ 
+bool InitialCacheGet(const ulong ticket, double &sl, double &tp, double &openPrice)
+{
+   for(int i = 0; i < ArraySize(g_initTicket); i++)
+   {
+      if(g_initTicket[i] == ticket)
+      {
+         sl        = g_initSL[i];
+         tp        = g_initTP[i];
+         openPrice = g_initOpenPrice[i];
+         return true;
+      }
+   }
+   return false;
+}
+void InitialCacheSet(const ulong ticket, const double sl, const double tp, const double openPrice)
+{
+   // solo se guarda si no existe ya un valor inicial para este ticket
+   for(int i = 0; i < ArraySize(g_initTicket); i++)
+      if(g_initTicket[i] == ticket)
+         return;
+ 
+   int n = ArraySize(g_initTicket);
+   ArrayResize(g_initTicket, n + 1);
+   ArrayResize(g_initSL, n + 1);
+   ArrayResize(g_initTP, n + 1);
+   ArrayResize(g_initOpenPrice, n + 1);
+   g_initTicket[n]    = ticket;
+   g_initSL[n]        = sl;
+   g_initTP[n]        = tp;
+   g_initOpenPrice[n] = openPrice;
+}
+
+//+------------------------------------------------------------------+
 //| Envia un mensaje de solo texto (embed, sin imagen) a un thread    |
 //| existente usando el bot token.                                    |
 //+------------------------------------------------------------------+
@@ -766,11 +808,41 @@ void HandleClose(const ulong dealTicket)
    string tradeResult = (info.profit >= 0) ? "Win" : "Loss"; // verde / rojo
    long   reasonRaw   = HistoryDealGetInteger(dealTicket, DEAL_REASON);
    string reasonText  = DealReasonToText(reasonRaw);
+   
+   // El precio de apertura real se guardo en la cache al abrir (info.price
+   // aqui en cierre es el precio de CIERRE, no sirve como referencia de entrada).
+   double initSL = 0, initTP = 0, openPrice = 0;
+   bool   foundInit = InitialCacheGet(info.positionId, initSL, initTP, openPrice);
+ 
+   string rrInicial = "No disponible";
+   if(foundInit)
+   {
+      double initRisk = 0, initReward = 0;
+      bool initHasSL = MoneyForLevel(info.type, info.symbol, info.volume, openPrice, initSL, initRisk);
+      bool initHasTP = MoneyForLevel(info.type, info.symbol, info.volume, openPrice, initTP, initReward);
+      rrInicial = RRText(initHasSL, initRisk, initHasTP, initReward);
+   }
+ 
+   // El R:R del ultimo cambio usa el ultimo SL/TP conocido (guardado en cache
+   // cada vez que se modifico), tambien contra el precio de apertura real.
+   double lastSL = 0, lastTP = 0;
+   bool   foundCache = CacheGet(info.positionId, lastSL, lastTP);
+ 
+   string rrUltimo = "No disponible";
+   if(foundCache && foundInit)
+   {
+      double lastRisk = 0, lastReward = 0;
+      bool lastHasSL = MoneyForLevel(info.type, info.symbol, info.volume, openPrice, lastSL, lastRisk);
+      bool lastHasTP = MoneyForLevel(info.type, info.symbol, info.volume, openPrice, lastTP, lastReward);
+      rrUltimo = RRText(lastHasSL, lastRisk, lastHasTP, lastReward);
+   }
 
    string desc = " ## "+ resultEmoji +" P/L: $ " + DoubleToString(info.profit, 2) + "\\n" +
                  "**Result:** " + tradeResult + "\\n" +
                  "**Motivo de cierre:** " + reasonText + "\\n" +
                  "**Precio cierre:** " + DoubleToString(info.price, _Digits) + "\\n" +
+                 "**R:R inicial:** " + rrInicial + "\\n" +
+                 "**R:R ultimo cambio:** " + rrUltimo + "\\n" +
                  "**Volumen:** " + DoubleToString(info.volume, 2) + "\\n" +
                  "**Simbolo:** " + info.symbol + "\\n" +
                  "**Hora MX:** " + FormatLocalDate(TimeLocal()) + "\\n" + //"**Hora cierre:** " + TimeToString(info.time, TIME_DATE|TIME_MINUTES) + "\\n" +
