@@ -6,7 +6,9 @@ Un EA de MT5 que envía automaticamente los trades a Discord, Apertura (con Scre
 Cada vez que abro una operación, el bot:
 
 Toma una captura del chart en el momento exacto de la entrada.
+
 Crea un thread nuevo en un canal tipo foro, titulado con el símbolo, la dirección (compra/venta) y la fecha y hora local (ej. "EURUSD COMPRA - Lunes 20 Jul 2026 09:30am").
+
 Publica ahí mismo el precio de entrada, volumen, y el Stop Loss y Take Profit convertidos a dinero real — no solo en pips, sino en cuánto representa en la cuenta si se toca cada nivel.
 
 **Mientras la operación sigue abierta:**
@@ -16,12 +18,16 @@ Si ajusto el SL o el TP manualmente (por ejemplo, moviendo el stop a break-even 
 **Al cerrar la operación:**
 
 Toma una segunda captura del chart en el momento del cierre.
+
 Publica el resultado en el mismo thread: precio de cierre, profit, y el motivo del cierre (si fue manual, por Stop Loss, Take Profit, o incluso un Stop Out por margen).
+
 Etiqueta el thread automáticamente como Win, Loss o BE (break-even) según el resultado — así el foro queda organizado y filtrable de un vistazo, sin tener que abrir cada thread para saber cómo cerró.
 
 ## ¿Para qué sirve?
 
-Es básicamente una bitácora de trading que se escribe sola. Cada operación queda documentada con evidencia visual y datos objetivos en tiempo real, sin depender de que me acuerde de tomar screenshots o llevar notas manuales. Con el tiempo, esto se convierte en un historial fácil de revisar — útil tanto para análisis personal como para compartir el proceso de forma transparente.
+Es básicamente una bitácora de trading que se escribe sola. Cada operación queda documentada con evidencia visual y datos objetivos en tiempo real, sin depender de que me acuerde de tomar screenshots o llevar notas manuales. 
+
+Con el tiempo, esto se convierte en un historial fácil de revisar — útil tanto para análisis personal como para compartir el proceso de forma transparente.
 
 ## Cómo funciona por dentro
 
